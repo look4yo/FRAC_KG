@@ -10,6 +10,72 @@ import math
 
 st.set_page_config(layout="wide", page_title="Neo4j KG Viewer")
 
+# =============================
+# Global UI font scaling (Streamlit)
+#  - 解决截图放入 Word 后字体过小的问题
+#  - 只需调整 UI_SCALE 一个参数即可全局放大/缩小
+# =============================
+UI_SCALE = 1.35  # 1.15~1.40；截图放进 Word 建议 >=1.25
+
+BASE_PX = int(14 * UI_SCALE)
+H1_PX = int(34 * UI_SCALE)
+H2_PX = int(26 * UI_SCALE)
+H3_PX = int(22 * UI_SCALE)
+LABEL_PX = int(14 * UI_SCALE)
+CAPTION_PX = int(13 * UI_SCALE)
+METRIC_VALUE_PX = int(26 * UI_SCALE)
+METRIC_LABEL_PX = int(14 * UI_SCALE)
+TABLE_PX = int(14 * UI_SCALE)
+
+st.markdown(
+    f"""
+    <style>
+    /* Base text */
+    html, body, [class*="css"]  {{
+        font-size: {BASE_PX}px !important;
+    }}
+
+    /* Headings */
+    h1 {{ font-size: {H1_PX}px !important; }}
+    h2 {{ font-size: {H2_PX}px !important; }}
+    h3 {{ font-size: {H3_PX}px !important; }}
+
+    /* Widget labels (selectbox/slider/number_input/etc.) */
+    div[data-testid="stWidgetLabel"] > label {{
+        font-size: {LABEL_PX}px !important;
+        font-weight: 600 !important;
+    }}
+
+    /* Tabs */
+    button[data-baseweb="tab"] {{
+        font-size: {LABEL_PX}px !important;
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+    }}
+
+    /* Metric cards */
+    div[data-testid="stMetricLabel"] {{
+        font-size: {METRIC_LABEL_PX}px !important;
+    }}
+    div[data-testid="stMetricValue"] {{
+        font-size: {METRIC_VALUE_PX}px !important;
+    }}
+
+    /* Captions */
+    .stCaption {{
+        font-size: {CAPTION_PX}px !important;
+    }}
+
+    /* DataFrame / Table text */
+    div[data-testid="stDataFrame"] * {{
+        font-size: {TABLE_PX}px !important;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
 # -----------------------------
 # 连接 Neo4j（建议用 st.secrets 管理）
 # -----------------------------
@@ -137,6 +203,9 @@ def build_pyvis(nodes, edges, center_name, rel_allow):
     """
     rel_allow 为空列表时 => 不过滤（显示全部边）
     rel_allow 非空时   => 只显示在 rel_allow 中的边
+
+    ✅ 修改点：不再设置 vis.js 的 nodes/edges 字体大小，也不再给 add_node/add_edge 传 font
+    => 红框内 graph 字体保持默认大小（不会随 UI_SCALE 放大）
     """
     net = Network(height="750px", width="100%", bgcolor="#ffffff", font_color="black", directed=True)
     net.force_atlas_2based(gravity=-50, central_gravity=0.01, spring_length=100, spring_strength=0.08)
@@ -153,7 +222,13 @@ def build_pyvis(nodes, edges, center_name, rel_allow):
             color = "#4a86ff"  # 蓝色（中心）
 
         title = f"labels: {labels}\nprops: {n['props']}"
-        net.add_node(n["id"], label=name, title=title, color=color, size=size)
+        net.add_node(
+            n["id"],
+            label=name,
+            title=title,
+            color=color,
+            size=size
+        )
 
     for e in edges:
         if rel_allow and (e["type"] not in rel_allow):
@@ -168,12 +243,6 @@ def build_pyvis(nodes, edges, center_name, rel_allow):
 
     return net
 
-
-# -----------------------------
-# 3.3.1 全局统计：取 “center -> (k hop) -> Property” 证据
-# - 只沿 traversalTypes 走（内置 Increases/Decreases/Causes）
-# - 取路径最后一条关系类型 lastType，用于 polarity 映射
-# -----------------------------
 def fetch_property_lasttype_evidence(center_name: str, k_hop: int, max_paths: int, traversal_types: list[str]):
     """
     返回 DataFrame: columns = [property, lastType]
@@ -831,8 +900,8 @@ if st.session_state.get("target2") is None and _PROP_OPTIONS_ALL:
 # -----------------------------
 tab1, tab2, tab3 = st.tabs([
     "1  Load subgraph",
-    "2  Global analysis (3.3.2)",
-    "3  Path analysis (3.3.3)",
+    "2  Global analysis",
+    "3  Path analysis",
 ])
 
 
@@ -927,7 +996,7 @@ with tab1:
 
 
 with tab2:
-    st.subheader("Global analysis (3.3.2)")
+    st.subheader("Global analysis")
 
     ctrl = st.container(border=True)
     with ctrl:
@@ -970,6 +1039,7 @@ with tab2:
 
         detail = st.session_state.global_detail_df
         st.markdown("#### Property-level polarity details")
+        detail = st.session_state.global_detail_df.reset_index(drop=True)
         st.dataframe(detail, use_container_width=True, height=420)
 
         st.download_button(
@@ -985,8 +1055,9 @@ with tab2:
             except Exception as _e:
                 st.error(f"Failed to load mapping table: {_e}")
 
+
 with tab3:
-    st.subheader("Path analysis (3.3.3)")
+    st.subheader("Path analysis")
 
     ctrl = st.container(border=True)
     with ctrl:
@@ -1000,7 +1071,7 @@ with tab3:
         with c4:
             st.number_input("α (Laplace smoothing)", min_value=0.0, step=0.5, key="alpha_path")
         with c5:
-            st.markdown("<div style=\'height: 28px\'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
             compute_path_clicked = st.button("Compute Top-10", use_container_width=True, key="btn_path")
 
         # Fixed: Max distinct paths (safety cap)
@@ -1044,11 +1115,8 @@ with tab3:
         st.info("Click **Compute Top-10** above to generate a Table C3-style Top-10 result.")
     else:
         top10 = st.session_state.path_scores_df
-        show_cols = None
-        # Table10-based scorer returns Table C3-style columns:
-        # fiber, P_all, N_all, P_all_23, N_all_23, Delta_net_*, S_route, S_strength, S_balance, Score
         delta_cols = [c for c in top10.columns if c.startswith("Delta_net_")]
-        # Keep Delta_net columns in a stable order (MS first if present, then MF, then others)
+
         def _delta_sort_key(c: str):
             cl = c.lower()
             if cl.endswith("_ms") or cl == "delta_net_ms":
@@ -1056,33 +1124,26 @@ with tab3:
             if cl.endswith("_mf") or cl == "delta_net_mf":
                 return (1, c)
             return (2, c)
+
         delta_cols = sorted(delta_cols, key=_delta_sort_key)
 
         show_cols = ["fiber", "P_all", "N_all", "P_all_23", "N_all_23"] + delta_cols + ["S_route", "S_strength", "S_balance", "Score"]
-        # Safety: only keep columns that exist to avoid KeyError
         show_cols = [c for c in show_cols if c in top10.columns]
 
-        st.markdown("#### Table C3 style (Top-10 fibers)")
-        # ---- display formatting: keep integers as-is, non-integers -> 2 decimals ----
+        st.markdown("#### Top-10 fibers")
         display_df = top10[show_cols].copy()
-
 
         def _fmt_cell(v):
             if v is None or (isinstance(v, float) and math.isnan(v)):
                 return ""
-            # pandas / numpy ints
             if isinstance(v, (int,)):
                 return str(v)
-            # floats
             if isinstance(v, float):
                 if math.isfinite(v) and abs(v - round(v)) < 1e-9:
                     return str(int(round(v)))
                 return f"{v:.2f}"
-            # fallback
             return str(v)
 
-
-        # only format numeric columns; others (fiber) keep original
         for c in display_df.columns:
             if pd.api.types.is_numeric_dtype(display_df[c]):
                 display_df[c] = display_df[c].map(_fmt_cell)
