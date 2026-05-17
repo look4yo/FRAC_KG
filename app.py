@@ -1,5 +1,6 @@
 import streamlit as st
 from neo4j import GraphDatabase
+from neo4j.exceptions import AuthError, ServiceUnavailable
 from pyvis.network import Network
 import tempfile
 import os
@@ -77,13 +78,48 @@ st.markdown(
 
 
 # -----------------------------
-# 连接 Neo4j（建议用 st.secrets 管理）
+# 连接 Neo4j
 # -----------------------------
-NEO4J_URI = st.secrets.get("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = st.secrets.get("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = st.secrets.get("NEO4J_PASSWORD", "10129926")
+def _get_secret(name: str):
+    """Read a Streamlit secret without failing when local secrets are absent."""
+    try:
+        return st.secrets.get(name)
+    except Exception as exc:
+        if exc.__class__.__name__ == "StreamlitSecretNotFoundError":
+            return None
+        raise
 
-driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+
+NEO4J_URI = _get_secret("NEO4J_URI")
+NEO4J_USER = _get_secret("NEO4J_USER")
+NEO4J_PASSWORD = _get_secret("NEO4J_PASSWORD")
+
+missing_secrets = [
+    name
+    for name, value in {
+        "NEO4J_URI": NEO4J_URI,
+        "NEO4J_USER": NEO4J_USER,
+        "NEO4J_PASSWORD": NEO4J_PASSWORD,
+    }.items()
+    if not value
+]
+
+if missing_secrets:
+    st.error(
+        "Missing Neo4j configuration. Please set these Streamlit secrets: "
+        + ", ".join(missing_secrets)
+    )
+    st.stop()
+
+try:
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    driver.verify_connectivity()
+except AuthError:
+    st.error("Unable to authenticate with Neo4j. Check NEO4J_USER and NEO4J_PASSWORD.")
+    st.stop()
+except ServiceUnavailable:
+    st.error("Unable to connect to Neo4j. Check NEO4J_URI and network access.")
+    st.stop()
 
 st.title("Knowledge Graph Viewer")
 
