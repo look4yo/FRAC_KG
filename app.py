@@ -331,7 +331,7 @@ def load_preference_map_from_excel():
     if not os.path.exists(xlsx_path):
         raise FileNotFoundError(
             f"Cannot find {MAPPING_FILENAME} in: {base_dir}\n"
-            f"Please place {MAPPING_FILENAME} next to apptest.py."
+            f"Please place {MAPPING_FILENAME} next to app.py."
         )
 
     df = pd.read_excel(xlsx_path, sheet_name=MAPPING_SHEET)
@@ -663,29 +663,29 @@ def compute_path_level_scores(df_counts: pd.DataFrame, pref_map: dict, target1: 
 
 
 # -----------------------------
-# Table10-based path scoring (paper-reproducible)
+# Path-scoring input table (paper-reproducible)
 #  - This reproduces Table C3 by computing pos/neg via sign propagation along the path:
 #      net_effect = Π sign(rel_i), where sign(Increases)=+1, sign(Decreases)=-1, Causes is neutral
 #    Then map net_effect to (pos/neg) by target desirability (higher/lower is better).
 #  - Exact duplicate paths are removed by (fiber, target, hops, node_seq, rel_seq).
 # -----------------------------
-TABLE10_FILENAME = "Table10.xlsx"
-TABLE10_SHEET = "Table10"
+PATH_SCORING_FILENAME = "Path_scoring_paths.xlsx"
+PATH_SCORING_SHEET = "Table10"
 
 @st.cache_data(show_spinner=False)
-def load_table10_paths():
+def load_path_scoring_paths():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    xlsx_path = os.path.join(base_dir, TABLE10_FILENAME)
+    xlsx_path = os.path.join(base_dir, PATH_SCORING_FILENAME)
     if not os.path.exists(xlsx_path):
         raise FileNotFoundError(
-            f"Cannot find {TABLE10_FILENAME} in: {base_dir}\n"
-            f"Please place {TABLE10_FILENAME} next to apptest.py."
+            f"Cannot find {PATH_SCORING_FILENAME} in: {base_dir}\n"
+            f"Please place {PATH_SCORING_FILENAME} next to app.py."
         )
-    df = pd.read_excel(xlsx_path, sheet_name=TABLE10_SHEET)
+    df = pd.read_excel(xlsx_path, sheet_name=PATH_SCORING_SHEET)
     need = {"fiber","target","hops","node_seq","rel_seq"}
     if not need.issubset(set(df.columns)):
         raise ValueError(
-            f"{TABLE10_FILENAME}/{TABLE10_SHEET} must contain columns: {sorted(need)}. "
+            f"{PATH_SCORING_FILENAME}/{PATH_SCORING_SHEET} must contain columns: {sorted(need)}. "
             f"Got: {list(df.columns)}"
         )
 
@@ -734,16 +734,16 @@ def _target_preference(target_name: str, pref_map: dict) -> str:
         return "lower"
     return (pref_map.get(target_name) or "range")
 
-def compute_path_level_scores_from_table10(
-    table10_df: pd.DataFrame,
+def compute_path_level_scores_from_paths(
+    path_df: pd.DataFrame,
     pref_map: dict,
     target1: str,
     target2: str,
     max_hops: int,
     alpha: float = 1.0,
 ):
-    """Compute Table C3 style statistics from Table10.xlsx."""
-    if table10_df is None or table10_df.empty:
+    """Compute Table C3 style statistics from the path-scoring input table."""
+    if path_df is None or path_df.empty:
         return pd.DataFrame(columns=["fiber","P_all","N_all","P_all_23","N_all_23","Delta_net_MS","Delta_net_MF","S_route","S_strength","S_balance","Score"])
 
     max_hops = int(max_hops)
@@ -754,7 +754,7 @@ def compute_path_level_scores_from_table10(
 
     t1 = str(target1).strip()
     t2 = str(target2).strip()
-    df = table10_df.copy()
+    df = path_df.copy()
     df = df[df["target"].isin([t1, t2]) & (df["hops"] >= 1) & (df["hops"] <= max_hops)].copy()
     if df.empty:
         return pd.DataFrame(columns=["fiber","P_all","N_all","P_all_23","N_all_23","Delta_net_MS","Delta_net_MF","S_route","S_strength","S_balance","Score"])
@@ -1128,7 +1128,7 @@ with tab3:
         else:
             targets = [st.session_state.target1, st.session_state.target2]
             with st.spinner("Computing path-level scores from Neo4j (Top-10)..."):
-                df_paths_all = load_table10_paths()
+                df_paths_all = load_path_scoring_paths()
                 # Keep a filtered view for raw-table inspection
                 df_paths = df_paths_all[
                     df_paths_all["target"].isin(targets)
@@ -1136,8 +1136,8 @@ with tab3:
                     & (df_paths_all["hops"] <= int(st.session_state.k_path))
                 ].copy()
 
-                df_scores = compute_path_level_scores_from_table10(
-                    table10_df=df_paths_all,
+                df_scores = compute_path_level_scores_from_paths(
+                    path_df=df_paths_all,
                     pref_map=pref_map,
                     target1=st.session_state.target1,
                     target2=st.session_state.target2,
