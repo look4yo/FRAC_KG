@@ -121,6 +121,47 @@ except ServiceUnavailable:
     st.error("Unable to connect to Neo4j. Check NEO4J_URI and network access.")
     st.stop()
 
+
+@st.cache_resource(show_spinner=False)
+def resolve_database() -> str:
+    """Return the business database to query.
+
+    Newer Aura instances name their default database after the instance ID
+    (e.g. "a91d1092") instead of "neo4j", while the driver defaults to "neo4j"
+    and raises Neo.ClientError.Database.DatabaseNotFound. Set the
+    NEO4J_DATABASE secret to skip the probe on every Streamlit rerun.
+    """
+    configured = _get_secret("NEO4J_DATABASE")
+    if configured:
+        return str(configured)
+    try:
+        with driver.session(database="system") as session:
+            standard = [
+                rec["name"]
+                for rec in session.run(
+                    "SHOW DATABASES YIELD name, type, currentStatus "
+                    "RETURN name, type, currentStatus"
+                )
+                if rec["type"] == "standard" and rec["currentStatus"] == "online"
+            ]
+    except Exception:
+        # Local servers or restricted auth may not expose SHOW DATABASES.
+        return "neo4j"
+    if "neo4j" in standard:
+        return "neo4j"
+    if len(standard) == 1:
+        return standard[0]
+    return "neo4j"
+
+
+NEO4J_DATABASE = resolve_database()
+
+
+def open_session():
+    """Open a session bound to the resolved business database."""
+    return driver.session(database=NEO4J_DATABASE)
+
+
 st.title("Knowledge Graph Viewer")
 
 # -----------------------------
@@ -158,7 +199,7 @@ def fetch_node_names_by_label(label: str) -> list:
     RETURN DISTINCT toString(n.name) AS name
     ORDER BY name
     """
-    with driver.session() as session:
+    with open_session() as session:
         rows = session.run(cypher).data()
     return [r["name"] for r in rows if r.get("name")]
 
@@ -209,7 +250,7 @@ def fetch_subgraph(center_name: str, k_hop: int, max_paths: int):
     nodes = {}
     edges = {}
 
-    with driver.session() as session:
+    with open_session() as session:
         records = session.run(cypher, center=center_name, limit=int(max_paths))
         for r in records:
             p = r["p"]
@@ -299,7 +340,7 @@ def fetch_property_lasttype_evidence(center_name: str, k_hop: int, max_paths: in
     LIMIT $limit
     """
 
-    with driver.session() as session:
+    with open_session() as session:
         rows = session.run(
             cypher,
             center=center_name,
@@ -509,7 +550,7 @@ def fetch_path_counts_for_targets(k_hop: int, max_paths: int, targets: list[str]
     LIMIT $limit
     """
 
-    with driver.session() as session:
+    with open_session() as session:
         rows = session.run(
             cypher,
             targets=targets,
